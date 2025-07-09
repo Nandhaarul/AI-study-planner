@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>AI Study Planner</title>
+  <style>
+    body { font-family: sans-serif; padding: 30px; background: #eef; }
+    .container { max-width: 600px; margin: auto; background: white; padding: 20px; border-radius: 10px; }
+    input, textarea, button { width: 100%; padding: 10px; margin-top: 10px; }
+    .plan { margin-top: 20px; background: #f5f5f5; padding: 15px; border-radius: 8px; }
+  </style>
+</head>
+<body>
+<div class="container">
+  <h2>📘 AI Study Planner</h2>
+  <form id="studyForm">
+    <input type="text" id="name" placeholder="Your Name" required />
+    <input type="text" id="subjects" placeholder="Subjects (comma separated)" required />
+    <input type="date" id="exam_date" required />
+    <input type="number" id="hours" placeholder="Free Hours per Day" required />
+    <button type="submit">Generate Plan</button>
+  </form>
+
+  <div id="planResult" class="plan"></div>
+</div>
+<script>
+  document.getElementById('studyForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const data = {
+      name: document.getElementById('name').value,
+      subjects: document.getElementById('subjects').value,
+      exam_date: document.getElementById('exam_date').value,
+      hours_per_day: document.getElementById('hours').value
+    };
+
+    const res = await fetch('http://localhost:18080/generate_plan', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data)
+    });
+    const result = await res.json();
+
+    const out = document.getElementById('planResult');
+    out.innerHTML = '<h3>📅 Your Plan</h3>';
+    result.plan.forEach(item => {
+      const line = document.createElement('div');
+      line.innerText = `${item.date}: ${item.subject} - ${item.topic} (${item.hours} hrs)`;
+      out.appendChild(line);
+    });
+  });
+</script>
+</body>
+</html>
