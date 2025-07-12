@@ -1,8 +1,15 @@
 #include "crow_all.h"
-#include <iostream>
 #include <fstream>
+#include <iostream>
+#include <sstream>
+#include <string>
+#include <vector>
+#include <ctime>
+#include <nlohmann/json.hpp>
 
-// ✅ Correct CORS Middleware
+using json = nlohmann::json;
+
+// ✅ Middleware to handle CORS
 struct CORS {
     struct context {};
 
@@ -11,10 +18,9 @@ struct CORS {
         res.add_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
         res.add_header("Access-Control-Allow-Headers", "Content-Type");
 
-        // ✅ Handle preflight request
         if (req.method == crow::HTTPMethod::Options) {
             res.code = 204;
-            res.end(); // 👈 MUST call end() to stop further processing
+            res.end();
         }
     }
 
@@ -24,50 +30,75 @@ struct CORS {
     }
 };
 
+// ✅ Utility to split string by comma
+std::vector<std::string> split_subjects(const std::string& input) {
+    std::vector<std::string> result;
+    std::stringstream ss(input);
+    std::string token;
+    while (std::getline(ss, token, ',')) {
+        if (!token.empty()) result.push_back(token);
+    }
+    return result;
+}
+
+// ✅ Dummy study plan generator
+json generate_study_plan(const std::string& name, const std::vector<std::string>& subjects,
+                         const std::string& exam_date_str, int hours_per_day) {
+    json plan = json::array();
+
+    // Get today's date
+    std::time_t t = std::time(nullptr);
+    std::tm* today = std::localtime(&t);
+
+    for (const auto& subject : subjects) {
+        for (int i = 0; i < 3; ++i) {
+            std::tm task_day = *today;
+            task_day.tm_mday += i;
+            std::mktime(&task_day);
+
+            char date_buf[11];
+            std::strftime(date_buf, sizeof(date_buf), "%Y-%m-%d", &task_day);
+
+            plan.push_back({
+                {"date", date_buf},
+                {"subject", subject},
+                {"topic", "Topic " + std::to_string(i + 1)},
+                {"hours", hours_per_day / 3}
+            });
+        }
+    }
+
+    return plan;
+}
+
 int main() {
     crow::App<CORS> app;
 
-    CROW_ROUTE(app, "/generate_plan").methods("POST"_method)
-    ([](const crow::request& req) {
-        std::cout << "🔄 POST /generate_plan called\n";
+    CROW_ROUTE(app, "/generate_plan").methods("POST"_method)([](const crow::request& req) {
+        try {
+            auto body = json::parse(req.body);
 
-        auto body = crow::json::load(req.body);
-        if (!body) return crow::response(400, "Invalid JSON");
+            std::string name = body["name"].get<std::string>();
+            std::string subjects_str = body["subjects"].get<std::string>();
+            std::string exam_date = body["exam_date"].get<std::string>();
+            int hours_per_day = std::stoi(body["hours_per_day"].get<std::string>());
 
-        std::string name = body["name"].s();
-        std::string subjects = body["subjects"].s();
-        std::string exam_date = body["exam_date"].s();
-        std::string hours_per_day = body["hours_per_day"].s();
+            auto subjects = split_subjects(subjects_str);
 
-        std::cout << "✅ Received Input:\n";
-        std::cout << "Name: " << name << "\n";
-        std::cout << "Subjects: " << subjects << "\n";
-        std::cout << "Exam Date: " << exam_date << "\n";
-        std::cout << "Hours/Day: " << hours_per_day << "\n";
+            json response;
+            response["plan"] = generate_study_plan(name, subjects, exam_date, hours_per_day);
 
-        std::ofstream out("user_input.csv", std::ios::app);
-        out << name << "," << subjects << "," << exam_date << "," << hours_per_day << "\n";
-        out.close();
-
-        crow::json::wvalue::list plan_items;
-        plan_items.push_back(crow::json::wvalue{
-            {"date", "2025-07-11"},
-            {"subject", subjects},
-            {"topic", "Arrays and Pointers"},
-            {"hours", std::stoi(hours_per_day)}
-        });
-        plan_items.push_back(crow::json::wvalue{
-            {"date", "2025-07-12"},
-            {"subject", subjects},
-            {"topic", "Sorting & Searching"},
-            {"hours", std::stoi(hours_per_day)}
-        });
-
-        crow::json::wvalue res;
-        res["status"] = "success";
-        res["plan"] = std::move(plan_items);
-
-        return crow::response(200, res);
+            crow::response res;
+            res.code = 200;
+            res.set_header("Content-Type", "application/json");
+            res.write(response.dump());
+            return res;
+        } catch (const std::exception& e) {
+            crow::response res;
+            res.code = 500;
+            res.write(std::string("Error: ") + e.what());
+            return res;
+        }
     });
 
     app.port(18080).multithreaded().run();
